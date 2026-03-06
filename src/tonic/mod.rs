@@ -51,6 +51,13 @@ use crate::tonic::api::qdrant_internal_api::QdrantInternalService;
 use crate::tonic::api::snapshots_api::{ShardSnapshotsService, SnapshotsService};
 use crate::tonic::api::storage_read_api::StorageReadService;
 
+// Compile-time storage backend selection for StorageRead gRPC service.
+// On Linux, uses io_uring for optimal async I/O; falls back to mmap elsewhere.
+#[cfg(target_os = "linux")]
+type StorageBackend = common::universal_io::io_uring::IoUringFile;
+#[cfg(not(target_os = "linux"))]
+type StorageBackend = common::universal_io::mmap::MmapUniversal<u8>;
+
 #[derive(Default)]
 pub struct QdrantService {}
 
@@ -115,7 +122,7 @@ pub fn init(
         let collections_service = CollectionsService::new(dispatcher.clone());
         let points_service = PointsService::new(dispatcher.clone(), settings.service.clone());
         let snapshot_service = SnapshotsService::new(dispatcher.clone());
-        let storage_read_service = StorageReadService::new(dispatcher.clone());
+        let storage_read_service = StorageReadService::<StorageBackend>::new(dispatcher.clone());
 
         // Only advertise the public services. By default, all services in QDRANT_DESCRIPTOR_SET
         // will be advertised, so explicitly list the services to be included.
