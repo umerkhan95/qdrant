@@ -46,6 +46,12 @@ pub struct ElementsRange {
     pub length: u64,
 }
 
+impl ElementsRange {
+    pub fn new(start: ElementOffset, length: u64) -> Self {
+        Self { start, length }
+    }
+}
+
 pub type ElementOffset = u64;
 
 pub type FileIndex = usize;
