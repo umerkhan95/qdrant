@@ -10,6 +10,7 @@ pub mod cpu_utilization;
 pub mod defaults;
 pub mod delta_pack;
 pub mod disk;
+#[cfg(not(target_os = "windows"))]
 pub mod disk_cache;
 pub mod either_variant;
 pub mod ext;
