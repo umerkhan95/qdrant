@@ -219,6 +219,12 @@ pub(super) enum CacheRead<'a, O> {
     Miss(O),
 }
 
+impl<O> CacheRead<'_, O> {
+    pub fn is_miss(&self) -> bool {
+        matches!(self, CacheRead::Miss(_))
+    }
+}
+
 /// Global cache controller. Will be used in production.
 static GLOBAL: OnceLock<Arc<CacheController>> = OnceLock::new();
 

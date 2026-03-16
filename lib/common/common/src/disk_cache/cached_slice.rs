@@ -95,6 +95,44 @@ impl<T: bytemuck::Pod> CachedSlice<T> {
         Ok(Cow::Owned(result))
     }
 
+    /// Try to make every block this file spans present in the cache.
+    ///
+    /// Touches one byte per block in a sequential pass. On miss, the full
+    /// block is read from cold storage into the cache.
+    ///
+    /// When `STOP_ON_MISS` is true, stops at the first block that generated
+    /// a cache miss. This avoids evicting useful blocks when the cache
+    /// is too small to hold everything.
+    pub fn populate<const STOP_ON_MISS: bool>(&self) -> io::Result<()> {
+        if self.len_bytes == 0 {
+            return Ok(());
+        }
+
+        let num_blocks = self.len_bytes.div_ceil(BLOCK_SIZE);
+        for block_idx in 0..num_blocks {
+            let req = BlockRequest {
+                key: BlockId {
+                    file_id: self.file_id,
+                    offset: BlockOffset(
+                        u32::try_from(block_idx).expect("file too large for block cache (>70 TiB)"),
+                    ),
+                },
+                // Request a single byte — enough to trigger caching the whole block.
+                range: 0..1,
+            };
+
+            // We only care about the side-effect of populating the cache.
+            // The no-op closure avoids allocating anything on miss.
+            let was_miss = self.controller.get_from_cache(req, |_| ())?.is_miss();
+
+            if STOP_ON_MISS && was_miss {
+                break;
+            }
+        }
+
+        Ok(())
+    }
+
     #[cfg(test)]
     pub fn get(&self, idx: usize) -> io::Result<Cow<'_, T>> {
         let slice = self.get_range(idx..idx + 1)?;
