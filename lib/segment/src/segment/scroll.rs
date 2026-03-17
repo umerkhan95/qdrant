@@ -5,7 +5,7 @@ use common::iterator_ext::IteratorExt;
 use common::types::DeferredBehavior;
 
 use super::Segment;
-use crate::entry::entry_point::SearchSegmentEntry;
+use crate::entry::SearchSegmentEntry;
 use crate::id_tracker::IdTracker;
 use crate::index::PayloadIndex;
 use crate::spaces::tools::peek_top_smallest_iterable;
