@@ -518,7 +518,8 @@ fn validate_geo_filter(test_segments: &TestSegments, query_filter: Filter) -> Re
             .plain_segment
             .payload_index
             .borrow()
-            .estimate_cardinality(&query_filter, &hw_counter);
+            .estimate_cardinality(&query_filter, &hw_counter)
+            .unwrap();
 
         ensure!(estimation.min <= estimation.exp, "{estimation:#?}");
         ensure!(estimation.exp <= estimation.max, "{estimation:#?}");
@@ -549,7 +550,8 @@ fn validate_geo_filter(test_segments: &TestSegments, query_filter: Filter) -> Re
             .struct_segment
             .payload_index
             .borrow()
-            .estimate_cardinality(&query_filter, &hw_counter);
+            .estimate_cardinality(&query_filter, &hw_counter)
+            .unwrap();
 
         ensure!(estimation.min <= estimation.exp, "{estimation:#?}");
         ensure!(estimation.exp <= estimation.max, "{estimation:#?}");
@@ -618,19 +620,22 @@ fn test_is_empty_conditions(test_segments: &TestSegments) -> Result<()> {
         .struct_segment
         .payload_index
         .borrow()
-        .estimate_cardinality(&filter, &hw_counter);
+        .estimate_cardinality(&filter, &hw_counter)
+        .unwrap();
 
     let estimation_plain = test_segments
         .plain_segment
         .payload_index
         .borrow()
-        .estimate_cardinality(&filter, &hw_counter);
+        .estimate_cardinality(&filter, &hw_counter)
+        .unwrap();
 
     let plain_result = test_segments
         .plain_segment
         .payload_index
         .borrow()
-        .query_points(&filter, &hw_counter, &is_stopped, None);
+        .query_points(&filter, &hw_counter, &is_stopped, None)
+        .unwrap();
 
     let real_number = plain_result.len();
 
@@ -640,6 +645,7 @@ fn test_is_empty_conditions(test_segments: &TestSegments) -> Result<()> {
         .payload_index
         .borrow()
         .query_points(&filter, &hw_counter, &is_stopped, None)
+        .unwrap()
         .into_iter()
         // null index does not track deleted points, so we need to filter them out here. In callsites,
         // the deleted check is done externally anyway
@@ -737,12 +743,13 @@ fn test_cardinality_estimation(test_segments: &TestSegments) -> Result<()> {
         .struct_segment
         .payload_index
         .borrow()
-        .estimate_cardinality(&filter, &hw_counter);
+        .estimate_cardinality(&filter, &hw_counter)
+        .unwrap();
 
     let hw_counter = HardwareCounterCell::new();
 
     let payload_index = test_segments.struct_segment.payload_index.borrow();
-    let filter_context = payload_index.filter_context(&filter, &hw_counter);
+    let filter_context = payload_index.filter_context(&filter, &hw_counter).unwrap();
     let exact = test_segments
         .struct_segment
         .id_tracker
@@ -782,7 +789,8 @@ fn test_root_nested_array_filter_cardinality_estimation() {
     let estimation = struct_segment
         .payload_index
         .borrow()
-        .estimate_cardinality(&filter, &hw_counter);
+        .estimate_cardinality(&filter, &hw_counter)
+        .unwrap();
 
     // not empty primary clauses
     assert_eq!(estimation.primary_clauses.len(), 1);
@@ -804,7 +812,7 @@ fn test_root_nested_array_filter_cardinality_estimation() {
     let hw_counter = HardwareCounterCell::new();
 
     let payload_index = struct_segment.payload_index.borrow();
-    let filter_context = payload_index.filter_context(&filter, &hw_counter);
+    let filter_context = payload_index.filter_context(&filter, &hw_counter).unwrap();
     let exact = struct_segment
         .id_tracker
         .borrow()
@@ -846,7 +854,8 @@ fn test_nesting_nested_array_filter_cardinality_estimation() {
     let estimation = struct_segment
         .payload_index
         .borrow()
-        .estimate_cardinality(&filter, &hw_counter);
+        .estimate_cardinality(&filter, &hw_counter)
+        .unwrap();
 
     // not empty primary clauses
     assert_eq!(estimation.primary_clauses.len(), 1);
@@ -871,7 +880,7 @@ fn test_nesting_nested_array_filter_cardinality_estimation() {
     let hw_counter = HardwareCounterCell::new();
 
     let payload_index = struct_segment.payload_index.borrow();
-    let filter_context = payload_index.filter_context(&filter, &hw_counter);
+    let filter_context = payload_index.filter_context(&filter, &hw_counter).unwrap();
     let exact = struct_segment
         .id_tracker
         .borrow()
@@ -938,7 +947,8 @@ fn test_struct_payload_index(test_segments: &TestSegments) -> Result<()> {
             .struct_segment
             .payload_index
             .borrow()
-            .estimate_cardinality(&query_filter, &hw_counter);
+            .estimate_cardinality(&query_filter, &hw_counter)
+            .unwrap();
 
         ensure!(estimation.min <= estimation.exp, "{estimation:#?}");
         ensure!(estimation.exp <= estimation.max, "{estimation:#?}");
@@ -1141,7 +1151,8 @@ fn test_struct_payload_index_nested_fields() {
         let estimation = struct_segment
             .payload_index
             .borrow()
-            .estimate_cardinality(&query_filter, &hw_counter);
+            .estimate_cardinality(&query_filter, &hw_counter)
+            .unwrap();
 
         assert!(estimation.min <= estimation.exp, "{estimation:#?}");
         assert!(estimation.exp <= estimation.max, "{estimation:#?}");
@@ -1253,7 +1264,8 @@ fn test_any_matcher_cardinality_estimation(test_segments: &TestSegments) -> Resu
         .struct_segment
         .payload_index
         .borrow()
-        .estimate_cardinality(&filter, &hw_counter);
+        .estimate_cardinality(&filter, &hw_counter)
+        .unwrap();
 
     ensure!(estimation.primary_clauses.len() == 1);
     for clause in estimation.primary_clauses.iter() {
@@ -1270,7 +1282,7 @@ fn test_any_matcher_cardinality_estimation(test_segments: &TestSegments) -> Resu
     let hw_counter = HardwareCounterCell::new();
 
     let payload_index = test_segments.struct_segment.payload_index.borrow();
-    let filter_context = payload_index.filter_context(&filter, &hw_counter);
+    let filter_context = payload_index.filter_context(&filter, &hw_counter).unwrap();
     let exact = test_segments
         .struct_segment
         .id_tracker

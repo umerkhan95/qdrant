@@ -603,7 +603,7 @@ impl HNSWIndex {
                         &payload_index_ref,
                         &vector_storage_ref,
                         stopped,
-                    );
+                    )?;
 
                     // This is a heuristic to skip building graph for mostly deleted blocks.
                     // It might be, that majority of points do not actually have vectors
@@ -736,7 +736,7 @@ impl HNSWIndex {
         payload_index: &StructPayloadIndex,
         vector_storage: &VectorStorageEnum,
         stopped: &AtomicBool,
-    ) -> Vec<PointOffsetType> {
+    ) -> OperationResult<Vec<PointOffsetType>> {
         let filter = Filter::new_must(Field(condition));
 
         let disposed_hw_counter = HardwareCounterCell::disposable(); // Internal operation. No measurements needed
@@ -744,9 +744,9 @@ impl HNSWIndex {
         let deleted_bitslice = vector_storage.deleted_vector_bitslice();
 
         let cardinality_estimation =
-            payload_index.estimate_cardinality(&filter, &disposed_hw_counter);
+            payload_index.estimate_cardinality(&filter, &disposed_hw_counter)?;
 
-        payload_index
+        Ok(payload_index
             .iter_filtered_points(
                 &filter,
                 id_tracker,
@@ -754,9 +754,9 @@ impl HNSWIndex {
                 &disposed_hw_counter,
                 stopped,
                 None,
-            )
+            )?
             .filter(|&point_id| !deleted_bitslice.get_bit(point_id as usize).unwrap_or(false))
-            .collect()
+            .collect())
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1059,7 +1059,7 @@ impl HNSWIndex {
                 1.0
             } else {
                 let query_point_cardinality =
-                    payload_index.estimate_cardinality(filter, &hw_counter);
+                    payload_index.estimate_cardinality(filter, &hw_counter)?;
                 let query_cardinality = adjust_to_available_vectors(
                     query_point_cardinality,
                     available_vector_count,
@@ -1092,7 +1092,13 @@ impl HNSWIndex {
                 vector.to_owned(),
                 &vector_storage,
                 Some(quantized_vectors),
-                filter.map(|f| BoxCow::Owned(payload_index.filter_context(f, &hw_counter))),
+                filter
+                    .map(|f| {
+                        payload_index
+                            .filter_context(f, &hw_counter)
+                            .map(BoxCow::Owned)
+                    })
+                    .transpose()?,
                 deleted_points,
                 vector_query_context.hardware_counter(),
             )?;
@@ -1122,7 +1128,9 @@ impl HNSWIndex {
         };
 
         let regular_search = || -> OperationResult<Vec<ScoredPointOffset>> {
-            let filter_context = filter.map(|f| payload_index.filter_context(f, &hw_counter));
+            let filter_context = filter
+                .map(|f| payload_index.filter_context(f, &hw_counter))
+                .transpose()?;
             let points_scorer = Self::construct_search_scorer(
                 vector,
                 &vector_storage,
@@ -1275,7 +1283,7 @@ impl HNSWIndex {
 
         let id_tracker = self.id_tracker.borrow();
         let payload_index = self.payload_index.borrow();
-        let query_cardinality = payload_index.estimate_cardinality(filter, hw_counter);
+        let query_cardinality = payload_index.estimate_cardinality(filter, hw_counter)?;
         // Assume query is already estimated to be small enough so we can iterate over all matched ids
         let filtered_points = payload_index.iter_filtered_points(
             filter,
@@ -1285,7 +1293,7 @@ impl HNSWIndex {
             is_stopped,
             // No deferred filtering here since it's HNSW index.
             None,
-        );
+        )?;
         self.search_plain_batched(vectors, filtered_points, top, params, vector_query_context)
     }
 
@@ -1476,7 +1484,7 @@ impl VectorIndex for HNSWIndex {
                 let hw_counter = query_context.hardware_counter();
 
                 let query_point_cardinality =
-                    payload_index.estimate_cardinality(query_filter, &hw_counter);
+                    payload_index.estimate_cardinality(query_filter, &hw_counter)?;
                 let query_cardinality = adjust_to_available_vectors(
                     query_point_cardinality,
                     available_vector_count,
@@ -1509,7 +1517,7 @@ impl VectorIndex for HNSWIndex {
                     );
                 }
 
-                let filter_context = payload_index.filter_context(query_filter, &hw_counter);
+                let filter_context = payload_index.filter_context(query_filter, &hw_counter)?;
 
                 // Fast cardinality estimation is not enough, do sample estimation of cardinality
                 let id_tracker = self.id_tracker.borrow();

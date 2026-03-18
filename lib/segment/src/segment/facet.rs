@@ -36,7 +36,7 @@ impl Segment {
 
         let hits_iter = if let Some(filter) = &request.filter {
             let id_tracker = self.id_tracker.borrow();
-            let filter_cardinality = payload_index.estimate_cardinality(filter, hw_counter);
+            let filter_cardinality = payload_index.estimate_cardinality(filter, hw_counter)?;
 
             let percentage_filtered = filter_cardinality.exp as f64 / available_points as f64;
 
@@ -59,7 +59,7 @@ impl Segment {
                         hw_counter,
                         is_stopped,
                         self.deferred_internal_id,
-                    )
+                    )?
                     .filter(|point_id| !id_tracker.is_deleted_point(*point_id))
                     .fold(HashMap::new(), |mut map, point_id| {
                         facet_index
@@ -79,7 +79,7 @@ impl Segment {
                 // aka. read from facet index
                 //
                 // This is more similar to a full-scan, but we won't be hashing so many times.
-                context = payload_index.struct_filtered_context(filter, hw_counter);
+                context = payload_index.struct_filtered_context(filter, hw_counter)?;
 
                 let iter = facet_index
                     .iter_values_map(hw_counter)
@@ -143,7 +143,7 @@ impl Segment {
 
         let values = if let Some(filter) = filter {
             let id_tracker = self.id_tracker.borrow();
-            let filter_cardinality = payload_index.estimate_cardinality(filter, hw_counter);
+            let filter_cardinality = payload_index.estimate_cardinality(filter, hw_counter)?;
 
             payload_index
                 .iter_filtered_points(
@@ -153,7 +153,7 @@ impl Segment {
                     hw_counter,
                     is_stopped,
                     self.deferred_internal_id,
-                )
+                )?
                 .filter(|point_id| !id_tracker.is_deleted_point(*point_id))
                 .fold(BTreeSet::new(), |mut set, point_id| {
                     set.extend(facet_index.get_point_values(point_id));
