@@ -24,6 +24,7 @@ fn tracker_open_options() -> OpenOptions {
         disk_parallel: None,
         populate: Some(false),
         advice: Some(AdviceSetting::Advice(Advice::Random)),
+        prevent_caching: None,
     }
 }
 

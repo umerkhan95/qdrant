@@ -1,4 +1,4 @@
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "linux")]
 pub mod disk_cached;
 pub mod error;
 pub mod file_ops;
@@ -29,6 +29,8 @@ pub struct OpenOptions {
     pub populate: Option<bool>,
     /// Use specific mmap advice.
     pub advice: Option<AdviceSetting>,
+    /// Whether to try to prevent caching for reads.
+    pub prevent_caching: Option<bool>,
 }
 
 impl Default for OpenOptions {
@@ -38,6 +40,7 @@ impl Default for OpenOptions {
             disk_parallel: None,
             populate: None,
             advice: None,
+            prevent_caching: None,
         }
     }
 }
@@ -69,6 +72,7 @@ where
         disk_parallel: None,
         populate: Some(false),
         advice: Some(AdviceSetting::Advice(Advice::Sequential)),
+        prevent_caching: Some(false),
     };
 
     let storage = S::open(path, options)?;

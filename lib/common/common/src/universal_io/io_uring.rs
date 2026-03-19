@@ -11,6 +11,7 @@ use ::io_uring::types::Fd;
 use ::io_uring::{IoUring, Probe, opcode, squeue};
 use ahash::AHashMap;
 use fs_err as fs;
+use fs_err::os::unix::fs::OpenOptionsExt;
 
 use super::*;
 
@@ -64,17 +65,30 @@ impl UniversalReadFileOps for IoUringFile {
 }
 
 impl<T: bytemuck::Pod + 'static> UniversalRead<T> for IoUringFile {
-    fn open(path: impl AsRef<Path>, _options: OpenOptions) -> Result<Self>
+    fn open(path: impl AsRef<Path>, options: OpenOptions) -> Result<Self>
     where
         Self: Sized,
     {
         // Check that `io_uring` was successfully initialized
         with_uring_runtime::<u8, _, _>(|_| ())?;
 
-        let file = fs::OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(false)
+        let OpenOptions {
+            need_sequential: _,
+            disk_parallel: _, // DISCUSS: do we really need this parameter? this is global in this implementation
+            populate: _,
+            advice: _,
+            prevent_caching,
+        } = options;
+
+        let mut opts = fs::OpenOptions::new();
+        opts.read(true);
+        opts.write(true);
+        opts.create(false);
+        if prevent_caching.unwrap_or_default() {
+            opts.custom_flags(nix::libc::O_DIRECT);
+        }
+
+        let file = opts
             .open(path.as_ref())
             .map_err(|err| UniversalIoError::extract_not_found(err, path.as_ref()))?;
 

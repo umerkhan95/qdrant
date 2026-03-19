@@ -1,11 +1,13 @@
 use std::borrow::Cow;
 use std::marker::PhantomData;
+use std::mem;
 use std::ops::Range;
 use std::sync::Arc;
-use std::{io, mem};
 
 use super::controller::CacheRead;
 use super::{BLOCK_SIZE, BlockId, BlockOffset, BlockRequest, CacheController, FileId};
+use crate::universal_io;
+use crate::universal_io::io_uring::IoUringFile;
 
 /// Typed view over a cached file, simulating a `&[T]` backed by the block cache.
 ///
@@ -21,7 +23,7 @@ pub struct CachedSlice<T> {
     len_bytes: usize,
 
     /// The controller backing this structure.
-    controller: Arc<CacheController>,
+    controller: Arc<CacheController<IoUringFile>>,
 
     r#type: PhantomData<T>,
 }
@@ -29,9 +31,9 @@ pub struct CachedSlice<T> {
 impl<T: bytemuck::Pod> CachedSlice<T> {
     /// Open a file through the cache controller and return a typed view over it.
     pub fn open(
-        controller: &Arc<CacheController>,
+        controller: &Arc<CacheController<IoUringFile>>,
         path: &std::path::Path,
-    ) -> std::io::Result<Self> {
+    ) -> universal_io::Result<Self> {
         let (file_id, len) = controller.open_file(path)?;
         Ok(Self {
             file_id,
@@ -50,7 +52,7 @@ impl<T: bytemuck::Pod> CachedSlice<T> {
     /// reference into the mmap. Otherwise, it will allocate a `Vec<T>` and copy
     /// block data into it. Allocating as `Vec<T>` (rather than `Vec<u8>`)
     /// guarantees correct alignment for any `T`.
-    pub fn get_range(&self, range: Range<usize>) -> io::Result<Cow<'_, [T]>> {
+    pub fn get_range(&self, range: Range<usize>) -> universal_io::Result<Cow<'_, [T]>> {
         let t_size = mem::size_of::<T>();
         debug_assert!(t_size != 0, "cannot use zero-sized type");
 
@@ -96,7 +98,7 @@ impl<T: bytemuck::Pod> CachedSlice<T> {
     }
 
     #[cfg(test)]
-    pub fn get(&self, idx: usize) -> io::Result<Cow<'_, T>> {
+    pub fn get(&self, idx: usize) -> universal_io::Result<Cow<'_, T>> {
         let slice = self.get_range(idx..idx + 1)?;
 
         let cow = match slice {

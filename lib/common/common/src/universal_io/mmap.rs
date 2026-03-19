@@ -131,6 +131,7 @@ where
             disk_parallel: _,
             populate,
             advice,
+            prevent_caching: _, // Whole point of mmap is to cache
         } = options;
 
         let mmap_file = path.as_ref();

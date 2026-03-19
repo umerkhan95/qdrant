@@ -47,6 +47,7 @@ impl<T: bytemuck::Pod> UniversalRead<T> for CachedSlice<T> {
             disk_parallel: _,
             populate: _,
             advice: _,
+            prevent_caching: _, // DISCUSS: handling this wouldn't make sense for this impl, unless for some reason we want O_DIRECT for cached file?
         } = options;
 
         Ok(CachedSlice::open(controller, path.as_ref())?)
