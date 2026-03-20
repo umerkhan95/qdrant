@@ -64,7 +64,7 @@ impl<T: bytemuck::Pod> CachedSlice<T> {
         let byte_range = range.start * t_size..range.end * t_size;
         let mut blocks_iter = self.blocks_for(byte_range);
 
-        // TODO(perf): if blocks are consecutive in the big cache file, we can still return without allocating.
+        // TODO(perf): if blocks are consecutive in the big cache file, we can potentially return without allocating.
         if blocks_iter.len() == 1 {
             let req = blocks_iter.next().expect("We just checked len() == 1");
             let result = self.controller.get_from_cache(req, |bytes| {
@@ -79,22 +79,124 @@ impl<T: bytemuck::Pod> CachedSlice<T> {
             });
         }
 
-        // Multi-block: allocate Vec<T> directly for correct alignment.
-        let mut result = vec![T::zeroed(); total_elements];
-        let result_bytes = bytemuck::cast_slice_mut::<T, u8>(&mut result);
-        let mut copied = 0;
-        let mut copy_block = |slice: &[u8]| {
-            let end = copied + slice.len();
-            result_bytes[copied..end].copy_from_slice(slice);
-            copied = end;
-        };
-        for req in blocks_iter {
-            let read = self.controller.get_from_cache(req, &mut copy_block)?;
-            if let CacheRead::Hit(slice) = read {
-                copy_block(slice);
+        // Multi-block: delegate to the batch path which submits all
+        // cold-storage reads together via io_uring.
+        let mut result = None;
+        self.get_range_batch(std::iter::once(range), |_idx, buf| {
+            result = Some(buf.to_vec());
+            Ok(())
+        })?;
+        Ok(Cow::Owned(result.expect("callback was called")))
+    }
+
+    /// Batch version of [`get_range`](Self::get_range).
+    ///
+    /// All block reads across every range are submitted together via a single
+    /// `get_from_cache_batch` call, so cold-storage I/O is batched through
+    /// io_uring.
+    ///
+    /// `callback(range_idx, &[T])` is called once per input range with the
+    /// fully assembled data for that range.
+    pub fn get_range_batch(
+        &self,
+        ranges: impl IntoIterator<Item = Range<usize>>,
+        mut callback: impl FnMut(usize, &[T]) -> universal_io::Result<()>,
+    ) -> universal_io::Result<()> {
+        let t_size = mem::size_of::<T>();
+        debug_assert!(t_size != 0, "cannot use zero-sized type");
+
+        // Flatten all ranges into a single list of block requests, tracking
+        // which input range each block belongs to and where within that
+        // range's output buffer it should be written.
+        struct BlockMeta {
+            range_idx: usize,
+            /// Byte offset within this range's output buffer.
+            dest_offset: usize,
+        }
+        let mut all_blocks: Vec<BlockRequest> = Vec::new();
+        let mut block_meta: Vec<BlockMeta> = Vec::new();
+
+        // Per-range: true if the range spans a single block and can be served
+        // directly from the cache callback without an intermediate buffer.
+        let mut range_is_single_block: Vec<bool> = Vec::new();
+        // Only allocated for multi-block ranges; single-block ranges get None.
+        let mut buffers: Vec<Option<Vec<T>>> = Vec::new();
+
+        for (range_idx, range) in ranges.into_iter().enumerate() {
+            let total_elements = range.end - range.start;
+
+            if total_elements == 0 {
+                range_is_single_block.push(false);
+                buffers.push(None);
+                continue;
+            }
+
+            let byte_range = range.start * t_size..range.end * t_size;
+            let blocks = self.blocks_for(byte_range);
+            let single_block = blocks.len() == 1;
+            range_is_single_block.push(single_block);
+
+            if single_block {
+                buffers.push(None);
+            } else {
+                buffers.push(Some(vec![T::zeroed(); total_elements]));
+            }
+
+            let mut dest_offset = 0;
+            for block in blocks {
+                block_meta.push(BlockMeta {
+                    range_idx,
+                    dest_offset,
+                });
+                dest_offset += block.range.len();
+                all_blocks.push(block);
             }
         }
-        Ok(Cow::Owned(result))
+
+        if all_blocks.is_empty() {
+            return Ok(());
+        }
+
+        let mut callback_err: Option<universal_io::UniversalIoError> = None;
+
+        self.controller
+            .get_from_cache_batch(all_blocks, |block_idx, slice| {
+                if callback_err.is_some() {
+                    return;
+                }
+
+                let meta = &block_meta[block_idx];
+                let range_idx = meta.range_idx;
+
+                if range_is_single_block[range_idx] {
+                    // Single-block range: pass the slice directly to the caller,
+                    // avoiding an intermediate buffer allocation.
+                    if let Err(e) = callback(range_idx, bytemuck::cast_slice(slice)) {
+                        callback_err = Some(e);
+                    }
+                } else {
+                    // Multi-block range: scatter into the output buffer.
+                    let buf = buffers[range_idx]
+                        .as_mut()
+                        .expect("multi-block range has a buffer");
+                    let buf_bytes = bytemuck::cast_slice_mut::<T, u8>(buf);
+                    let start = meta.dest_offset;
+                    buf_bytes[start..start + slice.len()].copy_from_slice(slice);
+                }
+            })?;
+
+        if let Some(err) = callback_err {
+            return Err(err);
+        }
+
+        // Deliver completed multi-block buffers.
+        for (range_idx, buf) in buffers.into_iter().enumerate() {
+            if let Some(buf) = buf {
+                callback(range_idx, &buf)?;
+            }
+        }
+
+        Ok(())
     }
 
     #[cfg(test)]

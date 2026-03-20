@@ -47,7 +47,8 @@ impl<T: bytemuck::Pod> UniversalRead<T> for CachedSlice<T> {
             disk_parallel: _,
             populate: _,
             advice: _,
-            prevent_caching: _, // DISCUSS: handling this wouldn't make sense for this impl, unless for some reason we want O_DIRECT for cached file?
+            // DISCUSS: handling this wouldn't make sense for this impl, unless for some reason we want O_DIRECT for cached file?
+            prevent_caching: _,
         } = options;
 
         Ok(CachedSlice::open(controller, path.as_ref())?)
@@ -68,14 +69,15 @@ impl<T: bytemuck::Pod> UniversalRead<T> for CachedSlice<T> {
     fn read_batch<const SEQUENTIAL: bool>(
         &self,
         ranges: impl IntoIterator<Item = crate::universal_io::ElementsRange>,
-        mut callback: impl FnMut(usize, &[T]) -> crate::universal_io::Result<()>,
+        callback: impl FnMut(usize, &[T]) -> crate::universal_io::Result<()>,
     ) -> crate::universal_io::Result<()> {
-        for (i, range) in ranges.into_iter().enumerate() {
-            let data = self.read::<SEQUENTIAL>(range)?;
-            callback(i, &data)?;
-        }
+        let elem_ranges = ranges.into_iter().map(|r| {
+            let start = usize::try_from(r.start).expect("range.start is within usize");
+            let length = usize::try_from(r.length).expect("range.length is within usize");
+            start..start + length
+        });
 
-        Ok(())
+        self.get_range_batch(elem_ranges, callback)
     }
 
     fn len(&self) -> crate::universal_io::Result<u64> {
