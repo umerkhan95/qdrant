@@ -14,6 +14,7 @@ use fs_err as fs;
 use fs_err::os::unix::fs::OpenOptionsExt;
 
 use super::*;
+use crate::maybe_uninit::assume_init_vec;
 
 thread_local! {
     static IO_URING: io::Result<RefCell<IoUring>> = init_io_uring().map(RefCell::new);
@@ -520,7 +521,7 @@ impl<'data, T> IoUringState<'data, T> {
                 );
                 // Truncate to the actual number of items read (short read at EOF).
                 items.truncate(actual_items);
-                let items: Vec<T> = unsafe { mem::transmute(items) };
+                let items: Vec<T> = unsafe { assume_init_vec(items) };
                 IoUringResponse::Read(items)
             }
 
